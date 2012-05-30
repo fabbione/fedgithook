@@ -1,0 +1,341 @@
+#!/bin/bash
+
+set -e
+
+# cmd line
+cmd="$0"
+refname="$1"
+oldrev="$2"
+newrev="$3"
+
+sanity_checks() {
+	if [ -z "$GIT_DIR" ]; then
+		echo "Don't run this script from the command line." >&2
+		echo " (if you want, you could supply GIT_DIR then run" >&2
+		echo "  $cmd <ref> <oldrev> <newrev>)" >&2
+		exit 1
+	fi
+
+	if [ -z "$refname" -o -z "$oldrev" -o -z "$newrev" ]; then
+		echo "Usage: $cmd <ref> <oldrev> <newrev>" >&2
+		exit 1
+	fi
+}
+
+get_defaults() {
+	# Check if there are frozen branches
+	frozenbranchesfilter="no"
+	[ -f $GIT_DIR/frozenbranches ] && frozenbranchesfilter="yes"
+
+	# Check for protected branches
+	protectedbranchesfilter="no"
+	[ -f $GIT_DIR/protectedbranches ] && protectedbranchesfilter="yes"
+
+	# Check if there are branches we want to mail (private branches can be quiet)
+	mailbranchesfilter="no"
+	[ -f $GIT_DIR/mailbranches ] && mailbranchesfilter="yes"
+
+	[ -f $GIT_DIR/commit-list ] && recipients=$(cat $GIT_DIR/commit-list)
+	# XXX remember to change default recipients
+	[ -n "$recipients" ] || recipients=fabbione@fabbione.net
+
+	projectdesc=$(sed -ne '1p' "$GIT_DIR/description")
+	if expr "$projectdesc" : "Unnamed repository.*$" >/dev/null; then
+		projectdesc="UNNAMED PROJECT"
+	fi
+
+	if [ -z "$mailer" ]; then
+		mailer="/usr/bin/send-unicode-email.py"
+	fi
+}
+
+# this sets change_type and rev_type vars to something we can use
+get_commit_type() {
+	if expr "$oldrev" : '0*$' >/dev/null; then
+		change_type="create"
+	else
+		if expr "$newrev" : '0*$' >/dev/null; then
+			change_type="delete"
+		else
+			change_type="update"
+		fi
+	fi
+
+	case "$change_type" in
+		create|update)
+			rev_type="$(git cat-file -t $newrev 2> /dev/null)"
+			;;
+		delete)
+			rev_type="delete"
+			;;
+	esac
+}
+
+# set very_short_name, short_refname and refname_type.
+# very_short_name is handy for branch filtering.
+get_short_refname() {
+	very_short_name="$(echo $refname | awk -F "/" '{print $NF}')"
+	case "$refname" in
+		refs/tags/*)
+			short_refname=${refname##refs/tags/}
+			;;
+		refs/heads/*)
+			short_refname=${refname##refs/heads}
+			;;
+		refs/remotes/*)
+			short_refname=${refname##refs/remotes/}
+			;;
+	esac
+	case "$refname","$rev_type" in
+		refs/tags/*,commit|refs/tags/*,delete)
+			# un-annotated tag
+			refname_type="tag"
+			;;
+		refs/tags/*,tag)
+			# annotated tag
+			refname_type="annotated tag"
+			;;
+		refs/heads/*,commit|refs/heads/*,delete)
+			# branch
+			refname_type="branch"
+			;;
+		refs/remotes/*,commit|refs/remotes/*,delete)
+			# tracking branch
+			refname_type="tracking branch"
+			;;
+	esac
+}
+
+filter_frozen_branches() {
+	if [ "$frozenbranchesfilter" = "yes" ]; then
+		if grep -q ^${very_short_name}$ $GIT_DIR/frozenbranches; then
+			echo "*** $very_short_name branch is frozen and cannot be changed" >&2
+			exit 1
+		fi
+	fi
+}
+
+# this policy filter makes sure that selected branches cannot be deleted
+# and that tags cannot be removed
+filter_delete_type() {
+	case "$refname","$change_type" in
+		refs/tags/*,delete)
+			# we don't allow tag removal
+			echo "*** Deleting a tag is not allowed in this repository" >&2
+			exit 1
+			;;
+		refs/heads/*,delete|refs/remotes/*,delete)
+			# delete branch
+			if [ "$protectedbranchesfilter" = "yes" ]; then
+				if grep -q ^${very_short_name}$ $GIT_DIR/protectedbranches; then
+					echo "*** $very_short_name branch cannot be deleted" >&2
+					exit 1
+				fi
+			fi
+			;;
+	esac
+}
+
+# tell us if we should mail about a certain branch or not
+filter_mail_branches() {
+	if [ "$refname_type" = "branch" ] || [ "$refname_type" = "tracking branch" ]; then
+		if [ "$mailbranchesfilter" = "yes" ]; then
+			if ! grep -q ^${very_short_name}$ $GIT_DIR/mailbranches; then
+				# no mail for this branch. We exit clean, it's not a failure
+				exit 0
+			fi
+		fi
+	fi
+}
+
+# generate_email_* functions look aweful but it is only a lot of
+# escaping to format the emails nicely.
+
+generate_email_branch_commit() {
+	base=$(git-merge-base "$oldrev" "$newrev")
+	commits=$(git-rev-list --reverse "$newrev" "^$base")
+
+	for i in $commits; do
+		git show --patch-with-stat --pretty=format:"\
+\
+Subject: $shortmodule: $very_short_name - %s%n\
+To: $recipients%n\
+X-Project: $projectdesc%n\
+X-Git-Module: $module%n\
+X-Git-Refname: $refname%n\
+X-Git-Reftype: $refname_type%n\
+X-Git-Oldrev: %P%n\
+X-Git-Newrev: %H%n\
+%n\
+Gitweb:        http://git.fedorahosted.org/git/$module?p=$module;a=commitdiff;h=%H%n\
+Commit:        %H%n\
+Parent:        %P%n\
+Author:        %an <%ae>%n\
+AuthorDate:    %ad%n\
+Committer:     %cn <%ce>%n\
+CommitterDate: %cd%n\
+%n%s%n%n%b" \
+		$i | $mailer $recipients
+
+		# try to serialize outgoing emails without flooding when pushing
+		# lots of commits at once
+		sleep 2
+	done
+}
+
+generate_email_delete() {
+	(echo -e "\
+Subject: $shortmodule: the $refname_type $very_short_name - deleted\n\
+To: $recipients\n\
+X-Project: $projectdesc\n\
+X-Git-Module: $module\n\
+X-Git-Refname: $refname\n\
+X-Git-Reftype: $refname_type\n\
+X-Git-Oldrev: $oldrev
+X-Git-Newrev: $newrev\n\
+\n\
+$refname_type: $very_short_name - deleted with refnum:\n";
+git show -s --pretty=oneline $oldrev) | $mailer $recipients
+}
+
+generate_email_atag() {
+	taginfo="$(git cat-file tag $newrev)"
+	eval $(echo "$taginfo" | sed -n '1s/ /=/p')
+	eval $(echo "$taginfo" | sed -n '2s/ /=/p')
+	eval $(echo "$taginfo" | sed -n '3s/ /=/p')
+	tagger=$(echo "$taginfo" | sed -n '4s/tagger \([^>]*>\)[^0-9]*\([0-9]*\).*/\1/p')
+	ts=$(echo "$taginfo" | sed -n '4s/tagger \([^>]*>\)[^0-9]*\([0-9]*\).*/\2/p')
+	date=$(date --date="1970-01-01 00:00:00 $ts seconds" +"%F %R %z")
+
+	(echo -e "\
+Subject: $shortmodule: the $refname_type $very_short_name has been ${change_type}d\n\
+To: $recipients\n\
+X-Project: $projectdesc\n\
+X-Git-Module: $module\n\
+X-Git-Refname: $refname\n\
+X-Git-Reftype: $refname_type\n\
+X-Git-Oldrev: $oldrev
+X-Git-Newrev: $newrev\n\
+\n\
+Gitweb:        http://git.fedorahosted.org/git/$module?p=$module;a=commitdiff;h=$newrev\n\
+Commit:        $newrev\n\
+Parent:        $oldrev\n\
+Author:        $tagger\n\
+AuthorDate:    $date\n\
+Committer:     $tagger\n\
+CommitterDate: $date\n\
+\n\
+$refname_type: $very_short_name has been ${change_type}d
+$(if [ $change_type = create ]; then
+	echo -e "\t    at $newrev ($rev_type)\n";
+  else
+	echo -e "\t      to $newrev ($rev_type)\n\tfrom $oldrev (which is now obsolete)\n";
+  fi)
+       tagging $object ($type)\n\
+$(if [ $type = commit ]; then
+	prevtag=$(git describe --abbrev=0 $newrev^ 2>/dev/null);
+	if [ -n "$prevtag" ]; then
+		echo "      replaces $prevtag";
+	fi
+fi)
+$(git cat-file tag $newrev | sed -n '5,$p')
+\n\
+$(if [ $type = commit ]; then
+	prevtag=$(git describe --abbrev=0 $newrev^ 2>/dev/null);
+	if [ -n "$prevtag" ]; then
+		git rev-list --pretty=short "$prevtag..$newrev" | git shortlog
+	else
+		git rev-list --pretty=short $newrev | git shortlog
+	fi
+fi)\
+";) | $mailer $recipients
+}
+
+generate_email_uatag() {
+	git show --patch-with-stat --pretty=format:"\
+\
+Subject: $shortmodule: the $refname_type $very_short_name has been ${change_type}d%n\
+To: $recipients%n\
+X-Project: $projectdesc%n\
+X-Git-Module: $module%n\
+X-Git-Refname: $refname%n\
+X-Git-Reftype: $refname_type%n\
+X-Git-Oldrev: %P%n\
+X-Git-Newrev: %H%n\
+%n\
+Gitweb:        http://git.fedorahosted.org/git/$module?p=$module;a=commitdiff;h=%H%n\
+Commit:        %H%n\
+Parent:        %P%n\
+Author:        %an <%ae>%n\
+AuthorDate:    %ad%n\
+Committer:     %cn <%ce>%n\
+CommitterDate: %cd%n\
+%n%s%n%n%b" \
+		$i | $mailer $recipients
+
+}
+
+generate_email() {
+	# common stuff
+
+	module=$(basename `readlink -f $GIT_DIR`)
+	shortmodule=${module%%.git}
+
+	# like all the other scripts around we need to generate emails
+	# according to the type of chance. No kidding.. it's a mess of
+	# combinations
+
+	case "$refname","$rev_type" in
+		refs/tags/*,commit)
+			# un-annotated tag
+			generate_email_uatag
+			;;
+		refs/tags/*,tag)
+			# annotated tag
+			generate_email_atag
+			;;
+		refs/tags/*,delete)
+			# delete tag
+			generate_email_delete
+			;;
+		refs/heads/*,commit)
+			# branch
+			generate_email_branch_commit
+			;;
+		refs/heads/*,delete)
+			# delete branch
+			generate_email_delete
+			;;
+		refs/remotes/*,commit)
+			# tracking branch
+			echo "*** Push-update of tracking branch, $refname" >&2
+			echo "***  - no email generated." >&2
+			# This can be made quiet.. ???
+			;;
+		refs/remotes/*,delete)
+			# delete tracking branch
+			generate_email_delete
+			;;
+	esac
+}
+
+### main
+
+sanity_checks
+
+# get some info around
+get_defaults
+get_commit_type
+get_short_refname
+
+# apply filters
+filter_frozen_branches
+filter_delete_type
+filter_mail_branches
+
+# if we are here we need to send an email.. go figure.. :)
+
+set +e # we don't want to kill a commit if we fail to send an email
+generate_email
+
+exit 0
