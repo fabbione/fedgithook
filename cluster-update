@@ -167,7 +167,7 @@ X-Git-Reftype: $refname_type%n\
 X-Git-Oldrev: %P%n\
 X-Git-Newrev: %H%n\
 %n\
-Gitweb:        http://git.fedorahosted.org/git/$module?p=$module;a=commitdiff;h=%H%n\
+Gitweb:        http://git.fedorahosted.org/git/?p=$module;a=commitdiff;h=%H%n\
 Commit:        %H%n\
 Parent:        %P%n\
 Author:        %an <%ae>%n\
@@ -217,7 +217,7 @@ X-Git-Reftype: $refname_type\n\
 X-Git-Oldrev: $oldrev
 X-Git-Newrev: $newrev\n\
 \n\
-Gitweb:        http://git.fedorahosted.org/git/$module?p=$module;a=commitdiff;h=$newrev\n\
+Gitweb:        http://git.fedorahosted.org/git/?p=$module;a=commitdiff;h=$newrev\n\
 Commit:        $newrev\n\
 Parent:        $oldrev\n\
 Author:        $tagger\n\
@@ -263,7 +263,7 @@ X-Git-Reftype: $refname_type%n\
 X-Git-Oldrev: %P%n\
 X-Git-Newrev: %H%n\
 %n\
-Gitweb:        http://git.fedorahosted.org/git/$module?p=$module;a=commitdiff;h=%H%n\
+Gitweb:        http://git.fedorahosted.org/git/?p=$module;a=commitdiff;h=%H%n\
 Commit:        %H%n\
 Parent:        %P%n\
 Author:        %an <%ae>%n\
