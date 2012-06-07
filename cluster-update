@@ -31,6 +31,10 @@ get_defaults() {
 	protectedbranchesfilter="no"
 	[ -f $GIT_DIR/protectedbranches ] && protectedbranchesfilter="yes"
 
+	# Check if we should enable or not tag filter protection
+	protectedtagfilter="no"
+	[ -f $GIT_DIR/protectedtagfilter ] && protectedtagfilter="yes"
+
 	# Check if there are branches we want to mail (private branches can be quiet)
 	mailbranchesfilter="no"
 	[ -f $GIT_DIR/mailbranches ] && mailbranchesfilter="yes"
@@ -39,6 +43,7 @@ get_defaults() {
 	# XXX remember to change default recipients
 	[ -n "$recipients" ] || recipients=fabbione@fabbione.net
 
+	# Don't add shortmodule name to Subject in output email
 	skip_shortmodule=""
 	[ -f $GIT_DIR/skip_shortmodule ] && skip_shortmodule=yes
 
@@ -123,9 +128,11 @@ filter_frozen_branches() {
 filter_delete_type() {
 	case "$refname","$change_type" in
 		refs/tags/*,delete)
-			# we don't allow tag removal
-			echo "*** Deleting a tag is not allowed in this repository" >&2
-			exit 1
+			if [ "$protectedtagfilter" = "yes" ]; then
+				# we don't allow tag removal
+				echo "*** Deleting a tag is not allowed in this repository" >&2
+				exit 1
+			fi
 			;;
 		refs/heads/*,delete|refs/remotes/*,delete)
 			# delete branch
