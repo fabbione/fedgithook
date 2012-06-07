@@ -159,7 +159,7 @@ generate_email_branch_commit() {
 		git show --patch-with-stat --pretty=format:"\
 \
 Subject: $shortmodule: $very_short_name - %s%n\
-To: $recipients%n\
+To: $recipient%n\
 X-Project: $projectdesc%n\
 X-Git-Module: $module%n\
 X-Git-Refname: $refname%n\
@@ -175,7 +175,7 @@ AuthorDate:    %ad%n\
 Committer:     %cn <%ce>%n\
 CommitterDate: %cd%n\
 %n%s%n%n%b" \
-		$i | $mailer $recipients
+		$i | $mailer $recipient
 
 		# try to serialize outgoing emails without flooding when pushing
 		# lots of commits at once
@@ -186,7 +186,7 @@ CommitterDate: %cd%n\
 generate_email_delete() {
 	(echo -e "\
 Subject: $shortmodule: the $refname_type $very_short_name - deleted\n\
-To: $recipients\n\
+To: $recipient\n\
 X-Project: $projectdesc\n\
 X-Git-Module: $module\n\
 X-Git-Refname: $refname\n\
@@ -195,7 +195,7 @@ X-Git-Oldrev: $oldrev
 X-Git-Newrev: $newrev\n\
 \n\
 $refname_type: $very_short_name - deleted with refnum:\n";
-git show -s --pretty=oneline $oldrev) | $mailer $recipients
+git show -s --pretty=oneline $oldrev) | $mailer $recipient
 }
 
 generate_email_atag() {
@@ -209,7 +209,7 @@ generate_email_atag() {
 
 	(echo -e "\
 Subject: $shortmodule: the $refname_type $very_short_name has been ${change_type}d\n\
-To: $recipients\n\
+To: $recipient\n\
 X-Project: $projectdesc\n\
 X-Git-Module: $module\n\
 X-Git-Refname: $refname\n\
@@ -248,14 +248,14 @@ $(if [ $type = commit ]; then
 		git rev-list --pretty=short $newrev | git shortlog
 	fi
 fi)\
-";) | $mailer $recipients
+";) | $mailer $recipient
 }
 
 generate_email_uatag() {
 	git show --patch-with-stat --pretty=format:"\
 \
 Subject: $shortmodule: the $refname_type $very_short_name has been ${change_type}d%n\
-To: $recipients%n\
+To: $recipient%n\
 X-Project: $projectdesc%n\
 X-Git-Module: $module%n\
 X-Git-Refname: $refname%n\
@@ -271,7 +271,7 @@ AuthorDate:    %ad%n\
 Committer:     %cn <%ce>%n\
 CommitterDate: %cd%n\
 %n%s%n%n%b" \
-		$i | $mailer $recipients
+		$i | $mailer $recipient
 
 }
 
@@ -336,6 +336,8 @@ filter_mail_branches
 # if we are here we need to send an email.. go figure.. :)
 
 set +e # we don't want to kill a commit if we fail to send an email
-generate_email
+for recipient in $recipients; do
+	generate_email
+done
 
 exit 0
