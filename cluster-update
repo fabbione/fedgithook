@@ -39,6 +39,9 @@ get_defaults() {
 	# XXX remember to change default recipients
 	[ -n "$recipients" ] || recipients=fabbione@fabbione.net
 
+	skip_shortmodule=""
+	[ -f $GIT_DIR/skip_shortmodule ] && skip_shortmodule=yes
+
 	projectdesc=$(sed -ne '1p' "$GIT_DIR/description")
 	if expr "$projectdesc" : "Unnamed repository.*$" >/dev/null; then
 		projectdesc="UNNAMED PROJECT"
@@ -158,7 +161,7 @@ generate_email_branch_commit() {
 	for i in $commits; do
 		git show --patch-with-stat --pretty=format:"\
 \
-Subject: $shortmodule: $very_short_name - %s%n\
+Subject: ${shortmodule}$very_short_name - %s%n\
 To: $recipient%n\
 X-Project: $projectdesc%n\
 X-Git-Module: $module%n\
@@ -185,7 +188,7 @@ CommitterDate: %cd%n\
 
 generate_email_delete() {
 	(echo -e "\
-Subject: $shortmodule: the $refname_type $very_short_name - deleted\n\
+Subject: ${shortmodule}the $refname_type $very_short_name - deleted\n\
 To: $recipient\n\
 X-Project: $projectdesc\n\
 X-Git-Module: $module\n\
@@ -208,7 +211,7 @@ generate_email_atag() {
 	date=$(date --date="1970-01-01 00:00:00 $ts seconds" +"%F %R %z")
 
 	(echo -e "\
-Subject: $shortmodule: the $refname_type $very_short_name has been ${change_type}d\n\
+Subject: ${shortmodule}the $refname_type $very_short_name has been ${change_type}d\n\
 To: $recipient\n\
 X-Project: $projectdesc\n\
 X-Git-Module: $module\n\
@@ -254,7 +257,7 @@ fi)\
 generate_email_uatag() {
 	git show --patch-with-stat --pretty=format:"\
 \
-Subject: $shortmodule: the $refname_type $very_short_name has been ${change_type}d%n\
+Subject: ${shortmodule}the $refname_type $very_short_name has been ${change_type}d%n\
 To: $recipient%n\
 X-Project: $projectdesc%n\
 X-Git-Module: $module%n\
@@ -279,7 +282,9 @@ generate_email() {
 	# common stuff
 
 	module=$(basename `readlink -f $GIT_DIR`)
-	shortmodule=${module%%.git}
+
+	shortmodule=""
+	[ -z "$skip_shortmodule" ] && shortmodule="${module%%.git}: "
 
 	# like all the other scripts around we need to generate emails
 	# according to the type of chance. No kidding.. it's a mess of
