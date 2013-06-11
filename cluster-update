@@ -195,7 +195,7 @@ CommitterDate: %cd%n\
 
 generate_email_delete() {
 	(echo -e "\
-Subject: ${shortmodule}the $refname_type $very_short_name - deleted\n\
+Subject: ${shortmodule}$very_short_name $refname_type - deleted\n\
 To: $recipient\n\
 X-Project: $projectdesc\n\
 X-Git-Module: $module\n\
@@ -218,7 +218,7 @@ generate_email_atag() {
 	date=$(date --date="1970-01-01 00:00:00 $ts seconds" +"%F %R %z")
 
 	(echo -e "\
-Subject: ${shortmodule}the $refname_type $very_short_name has been ${change_type}d\n\
+Subject: ${shortmodule}$very_short_name $refname_type has been ${change_type}d\n\
 To: $recipient\n\
 X-Project: $projectdesc\n\
 X-Git-Module: $module\n\
@@ -264,7 +264,7 @@ fi)\
 generate_email_uatag() {
 	git show --summary --pretty=format:"\
 \
-Subject: ${shortmodule}the $refname_type $very_short_name has been ${change_type}d%n\
+Subject: ${shortmodule}$very_short_name $refname_type has been ${change_type}d%n\
 To: $recipient%n\
 X-Project: $projectdesc%n\
 X-Git-Module: $module%n\
